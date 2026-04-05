@@ -68,26 +68,33 @@ Restart Claude Code. The CO2 estimate appears in the status line.
 
 ## Commands
 
-| Command | What it does |
-|---------|-------------|
-| `setup.sh` | Init database, backfill historical sessions, show total |
-| `statusline.sh` | Status line script (called automatically by Claude Code) |
-| `persist-session.sh` | Stop hook (saves session data on exit) |
-| `backfill.sh` | Re-parse all historical JSONL transcripts |
-| `generate-report.sh` | Export shareable PNG report cards |
+| Command                 | What it does                                                   |
+| ----------------------- | -------------------------------------------------------------- |
+| `setup.sh`              | Init database, backfill historical sessions, show total        |
+| `statusline.sh`         | Status line script (called automatically by Claude Code)       |
+| `persist-session.sh`    | Stop hook (saves session data on exit)                         |
+| `backfill.sh`           | Re-parse all historical JSONL transcripts                      |
+| `generate-report.sh`    | Export shareable PNG report cards                              |
 | `/claude-carbon:report` | In-session text report with totals, equivalences, top sessions |
 
 ## Emission factors
 
 Factors from [Jegham et al. 2025](https://arxiv.org/abs/2505.09598), a peer-reviewed study measuring energy consumption of LLM inference on AWS infrastructure.
 
-| Model | Input (gCO2e/Mtok) | Output (gCO2e/Mtok) | Basis |
-|-------|--------------------|--------------------|-------|
-| Opus | 500 | 3000 | Extrapolated (3x Sonnet) |
-| Sonnet | 190 | 1140 | Measured |
-| Haiku | 95 | 570 | Extrapolated (0.5x Sonnet) |
+| Model  | Input (gCO2e/Mtok) | Output (gCO2e/Mtok) | Basis                      |
+| ------ | ------------------ | ------------------- | -------------------------- |
+| Opus   | 500                | 3000                | Extrapolated (3x Sonnet)   |
+| Sonnet | 190                | 1140                | Measured                   |
+| Haiku  | 95                 | 570                 | Extrapolated (0.5x Sonnet) |
 
-These are order-of-magnitude estimates, not precise measurements. Factors are editable in `data/factors.json`. See [METHODOLOGY.md](METHODOLOGY.md) for the full scientific basis, formula, limitations, and equivalences.
+**Important: these are order-of-magnitude estimates, not precise measurements.**
+
+- Sonnet factors are derived from Jegham et al. direct measurements. Opus and Haiku are extrapolated (no public data from Anthropic on per-model energy consumption).
+- Cache read tokens are counted at the same rate as fresh compute. In reality, cache reads consume less energy. This means estimates skew high.
+- Carbon intensity uses AWS grid-average (0.287 kgCO2e/kWh), not real-time grid data.
+- Anthropic does not publish Scope 1, 2, or 3 emissions. These estimates are independent and based on academic research, not provider data.
+
+Factors are editable in `data/factors.json`. See [METHODOLOGY.md](METHODOLOGY.md) for the full scientific basis, formula, and equivalences.
 
 ## Dependencies
 
@@ -160,13 +167,13 @@ Output tokens are the most expensive in both cost and energy.
 
 ### Combined impact
 
-| Lever | Estimated reduction |
-|-------|-------------------|
-| Right model per task | -60% vs all-Opus |
-| RTK | -70% on CLI tokens |
-| Thinking cap at 10k | -70% on thinking tokens |
-| Haiku subagents | -80% on exploration |
-| **All combined** | **-50 to 70% total** |
+| Lever                | Estimated reduction     |
+| -------------------- | ----------------------- |
+| Right model per task | -60% vs all-Opus        |
+| RTK                  | -70% on CLI tokens      |
+| Thinking cap at 10k  | -70% on thinking tokens |
+| Haiku subagents      | -80% on exploration     |
+| **All combined**     | **-50 to 70% total**    |
 
 ### Further reading
 
