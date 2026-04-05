@@ -89,6 +89,7 @@ echo "Generating HTML variants..."
 inject_common() {
   local src="$1" dst="$2"
   sed \
+    -e "s|{{TODAY}}|${TODAY}|g" \
     -e "s|{{TOTAL_CO2_VALUE}}|${TOTAL_CO2_VALUE}|g" \
     -e "s|{{TOTAL_CO2_UNIT}}|${TOTAL_CO2_UNIT}|g" \
     -e "s|{{TOTAL_SESSIONS}}|${TOTAL_SESSIONS}|g" \
