@@ -17,8 +17,10 @@ Same command to install and to update to the latest version.
 **2. Restart Claude Code.** Your CO2 appears in the status line:
 
 ```
-🟢 Opus 4.6 (1M context) ░░░░ 6% | $3.20 | 145g CO₂ | claude cowork
+claude-carbon ⌥ main | 🟢 Opus 4.7 ▓▓▓░░░░░░░ 35% | $0.50 · 65g CO₂ | Use 17% ↻13:00
 ```
+
+Segments, left to right: project + git branch · model + context window % · session cost + CO2 · 5h block quota usage + reset time. A 🔥 prefix appears on the quota segment if you're burning >50%/h since block start.
 
 **3. Use the slash commands:**
 
@@ -159,6 +161,8 @@ Factors are editable in `data/factors.json`. See [METHODOLOGY.md](METHODOLOGY.md
 
 - `jq` - JSON parsing
 - `sqlite3` - local database
+- `git` - branch detection in status line (optional)
+- `npx` (Node.js) - 5h quota usage in status line via [ccusage](https://github.com/ryoppippi/ccusage), called with aggressive cache (optional)
 - `playwright-core` + Chromium - PNG export for `/carbon-card` (optional)
 
 `jq` and `sqlite3` are pre-installed on macOS. On Linux: `apt install jq sqlite3`.
