@@ -17,6 +17,11 @@ SINCE="${YEAR}-01-01"
 SINCE_LABEL_FR="janvier ${YEAR}"
 SINCE_LABEL_EN="January ${YEAR}"
 LANG_FILTER="" # empty = both
+LABEL_AUTO=1   # default mode: derive the "since" label from the earliest real session
+
+# Full month names for the auto-derived label (index 1-12)
+MONTHS_FR=("" "janvier" "février" "mars" "avril" "mai" "juin" "juillet" "août" "septembre" "octobre" "novembre" "décembre")
+MONTHS_EN=("" "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December")
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,12 +29,14 @@ while [[ $# -gt 0 ]]; do
       SINCE="$2"
       SINCE_LABEL_FR="$2"
       SINCE_LABEL_EN="$2"
+      LABEL_AUTO=0
       shift 2
       ;;
     --all)
       SINCE=""
       SINCE_LABEL_FR="le début"
       SINCE_LABEL_EN="the beginning"
+      LABEL_AUTO=0
       shift
       ;;
     --lang)
@@ -95,6 +102,17 @@ read -r TOTAL_CO2_VALUE TOTAL_CO2_UNIT <<< "$(format_co2 "$TOTAL_CO2_RAW")"
 TOTAL_COST="$(echo "$TOTAL_COST_RAW" | LC_ALL=C awk '{printf "%.0f", $1}')"
 FIRST_DATE="$(echo "$FIRST_DATE_RAW" | cut -c1-10)"
 EQUIV_KM="$(echo "$TOTAL_CO2_RAW" | LC_ALL=C awk '{printf "%.1f", $1/120}')"
+
+# In default mode, label the report with the actual earliest session month, not Jan 1st
+# (transcripts older than ~30 days are purged, so the real data rarely starts in January).
+if [ "$LABEL_AUTO" = "1" ] && [ -n "$FIRST_DATE" ]; then
+  _lm="$(echo "$FIRST_DATE" | cut -c6-7 | sed 's/^0//')"
+  _ly="$(echo "$FIRST_DATE" | cut -c1-4)"
+  if [ -n "$_lm" ] && [ "$_lm" -ge 1 ] 2>/dev/null && [ "$_lm" -le 12 ] 2>/dev/null; then
+    SINCE_LABEL_FR="${MONTHS_FR[$_lm]} ${_ly}"
+    SINCE_LABEL_EN="${MONTHS_EN[$_lm]} ${_ly}"
+  fi
+fi
 
 # Format tokens (M)
 TOTAL_TOKENS="$(echo "$TOTAL_TOKENS_RAW" | LC_ALL=C awk '{printf "%.0f", $1/1000000}')"
@@ -232,12 +250,13 @@ TMP_SUMMARY="$TMP_SUMMARY_FR"
 _t=$(mktemp /tmp/claude-carbon-monthly-XXXXXX); TMP_MONTHLY="${_t}.txt"; mv "$_t" "$TMP_MONTHLY"
 echo "$MONTHLY_DATA" > "$TMP_MONTHLY"
 
-export TMP_SUMMARY TMP_MONTHLY
+export TMP_SUMMARY TMP_SUMMARY_EN TMP_MONTHLY
 python3 << 'PYEOF'
 import sys, os
 
 months_fr = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
 summary_file = os.environ["TMP_SUMMARY"]
+summary_file_en = os.environ["TMP_SUMMARY_EN"]
 monthly_file = os.environ["TMP_MONTHLY"]
 
 # Parse monthly data
@@ -271,8 +290,8 @@ for label, co2, display in rows:
     )
 
 # Inject into all summary files
-for sf in [summary_file, summary_file.replace("-fr-", "-en-")]:
-    if os.path.exists(sf):
+for sf in [summary_file, summary_file_en]:
+    if sf and os.path.exists(sf):
         with open(sf) as f:
             content = f.read()
         content = content.replace("{{MONTHLY_BARS}}", bars_html)
@@ -302,11 +321,16 @@ PW_PATH="$(node -e "try { console.log(require.resolve('playwright-core').replace
 
 if [ -z "$PW_PATH" ]; then
   _npm_global_root="$(npm root -g 2>/dev/null || true)"
+  # Check both flattened (playwright-core installed directly) and nested (installed as a
+  # dependency of the full "playwright" package) locations.
   for candidate in \
     "${_npm_global_root}/playwright-core" \
+    "${_npm_global_root}/playwright/node_modules/playwright-core" \
     "${HOME}/node_modules/playwright-core" \
+    "${HOME}/node_modules/playwright/node_modules/playwright-core" \
     "${HOME}/claude cowork/node_modules/playwright-core" \
-    "/opt/homebrew/lib/node_modules/playwright-core"; do
+    "/opt/homebrew/lib/node_modules/playwright-core" \
+    "/opt/homebrew/lib/node_modules/playwright/node_modules/playwright-core"; do
     if [ -d "$candidate" ]; then
       PW_PATH="$candidate"
       break
