@@ -1,8 +1,9 @@
 {
-  "_purpose": "Canonical golden vectors for the claude-carbon methodology. Source of truth shared with downstream consumers (TokenClimate SaaS keeps a byte-identical copy in tests/fixtures/ and checks it weekly). Any change to data/factors.json or data/prices.json MUST update these expected values in the same commit.",
+  "_purpose": "Canonical golden vectors for the claude-footprint methodology (CO2, cost, and water). Source of truth shared with downstream consumers (TokenClimate SaaS keeps a byte-identical copy in tests/fixtures/ and checks it weekly). Any change to data/factors.json or data/prices.json MUST update these expected values in the same commit.",
   "_formulas": {
     "co2_grams": "((input_tokens + cache_creation_tokens) * factor_in + cache_read_tokens * (factor_in * cache_read_factor) + output_tokens * factor_out) / 1e6",
-    "cost_usd": "(input_tokens * price_in + cache_creation_tokens * (price_in * cache_write_multiplier) + cache_read_tokens * (price_in * cache_read_multiplier) + output_tokens * price_out) / 1e6"
+    "cost_usd": "(input_tokens * price_in + cache_creation_tokens * (price_in * cache_write_multiplier) + cache_read_tokens * (price_in * cache_read_multiplier) + output_tokens * price_out) / 1e6",
+    "water_liters": "((input_tokens + cache_creation_tokens) * water_in + cache_read_tokens * (water_in * cache_read_factor) + output_tokens * water_out) / 1e6 (same shape as co2_grams; equivalently co2_grams * 3.32/287)"
   },
   "_token_semantics": "input_tokens here is the UNCACHED input (Anthropic usage.input_tokens). cache_creation_tokens (cache write) is separate. Note: the plugin DB column input_tokens stores input + cache_write; these vectors keep them split, as captured from the JSONL.",
   "_constants": {
@@ -20,9 +21,15 @@
       "opus": { "input": 5, "output": 25 },
       "sonnet": { "input": 3, "output": 15 },
       "haiku": { "input": 1, "output": 5 }
+    },
+    "water_factors_l_per_mtok": {
+      "fable": { "input": 11.568, "output": 69.408 },
+      "opus": { "input": 5.784, "output": 34.704 },
+      "sonnet": { "input": 2.198, "output": 13.187 },
+      "haiku": { "input": 1.099, "output": 6.594 }
     }
   },
-  "_rounding": "All token counts are multiples of 10,000 so every expected value is EXACT at <= 3 decimals for co2_grams and <= 4 decimals for cost_usd. This makes the vectors implementation-agnostic: the bash plugin prints co2 at 4 decimals / cost at 6 decimals, the SaaS rounds co2 to 3 decimals / cost to 4 decimals, and both land on the exact value. Runners compare with a relative tolerance of 1e-6.",
+  "_rounding": "All token counts are multiples of 10,000 so every expected value is EXACT: <= 3 decimals for co2_grams, <= 4 decimals for cost_usd, <= 5 decimals for water_liters. This makes the vectors implementation-agnostic: the bash plugin prints co2 at 4 decimals / cost + water at 6 decimals, the SaaS rounds to fewer, and both land on the exact value. Runners compare with a relative tolerance of 1e-6.",
   "_excluded_semantics": "Vectors with excluded=true use a model string without 'claude' (or matching factors.json exclude_models). expected_* is null: the bash plugin stores co2_grams=0 / cost_usd=0 with excluded=1 (raw tokens kept, no estimate); the SaaS returns null ('CO2 non connu'). Both mean: no number is fabricated.",
   "vectors": [
     {
@@ -34,7 +41,8 @@
       "cache_read_tokens": 3000000,
       "output_tokens": 30000,
       "expected_co2_grams": 670.0,
-      "expected_cost_usd": 7.5
+      "expected_cost_usd": 7.5,
+      "expected_water_liters": 7.75056
     },
     {
       "id": "opus-no-cache",
@@ -45,7 +53,8 @@
       "cache_read_tokens": 0,
       "output_tokens": 100000,
       "expected_co2_grams": 800.0,
-      "expected_cost_usd": 7.5
+      "expected_cost_usd": 7.5,
+      "expected_water_liters": 9.2544
     },
     {
       "id": "sonnet-cache-read-dominant",
@@ -56,7 +65,8 @@
       "cache_read_tokens": 12000000,
       "output_tokens": 80000,
       "expected_co2_grams": 305.9,
-      "expected_cost_usd": 5.4225
+      "expected_cost_usd": 5.4225,
+      "expected_water_liters": 3.5387
     },
     {
       "id": "haiku-mixed",
@@ -67,7 +77,8 @@
       "cache_read_tokens": 500000,
       "output_tokens": 20000,
       "expected_co2_grams": 19.95,
-      "expected_cost_usd": 0.2025
+      "expected_cost_usd": 0.2025,
+      "expected_water_liters": 0.23079
     },
     {
       "id": "opus-cache-write-only",
@@ -78,7 +89,8 @@
       "cache_read_tokens": 0,
       "output_tokens": 0,
       "expected_co2_grams": 50.0,
-      "expected_cost_usd": 0.625
+      "expected_cost_usd": 0.625,
+      "expected_water_liters": 0.5784
     },
     {
       "id": "sonnet-cache-read-only",
@@ -89,7 +101,8 @@
       "cache_read_tokens": 1000000,
       "output_tokens": 0,
       "expected_co2_grams": 15.2,
-      "expected_cost_usd": 0.3
+      "expected_cost_usd": 0.3,
+      "expected_water_liters": 0.17584
     },
     {
       "id": "all-zeros",
@@ -100,7 +113,8 @@
       "cache_read_tokens": 0,
       "output_tokens": 0,
       "expected_co2_grams": 0.0,
-      "expected_cost_usd": 0.0
+      "expected_cost_usd": 0.0,
+      "expected_water_liters": 0.0
     },
     {
       "id": "excluded-non-claude-model",
@@ -112,7 +126,8 @@
       "output_tokens": 40000,
       "excluded": true,
       "expected_co2_grams": null,
-      "expected_cost_usd": null
+      "expected_cost_usd": null,
+      "expected_water_liters": null
     },
     {
       "id": "fable-mythos-alias",
@@ -123,7 +138,8 @@
       "cache_read_tokens": 0,
       "output_tokens": 10000,
       "expected_co2_grams": 70.0,
-      "expected_cost_usd": 0.6
+      "expected_cost_usd": 0.6,
+      "expected_water_liters": 0.80976
     },
     {
       "id": "opus-heavy-session",
@@ -134,7 +150,8 @@
       "cache_read_tokens": 8000000,
       "output_tokens": 60000,
       "expected_co2_grams": 715.0,
-      "expected_cost_usd": 8.15
+      "expected_cost_usd": 8.15,
+      "expected_water_liters": 8.27112
     },
     {
       "id": "haiku-tiny-session",
@@ -145,7 +162,8 @@
       "cache_read_tokens": 0,
       "output_tokens": 10000,
       "expected_co2_grams": 6.65,
-      "expected_cost_usd": 0.06
+      "expected_cost_usd": 0.06,
+      "expected_water_liters": 0.07693
     },
     {
       "id": "haiku-cache-read-only",
@@ -156,7 +174,8 @@
       "cache_read_tokens": 10000000,
       "output_tokens": 0,
       "expected_co2_grams": 76.0,
-      "expected_cost_usd": 1.0
+      "expected_cost_usd": 1.0,
+      "expected_water_liters": 0.8792
     }
   ]
 }

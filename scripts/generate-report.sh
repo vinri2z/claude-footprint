@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# generate-report.sh — Generate Claude Carbon Report PNGs from DB stats.
+# generate-report.sh — Generate Claude Footprint Report PNGs (CO2 + water) from DB stats.
 # Usage: generate-report.sh [--since YYYY-MM-DD] [--all]
 # Default: since January 1st of current year.
 set -euo pipefail
@@ -74,14 +74,17 @@ fi
 
 mkdir -p "$EXPORT_DIR"
 
-# Ensure the excluded column exists on pre-existing DBs (idempotent)
+# Ensure the excluded + water_liters columns exist on pre-existing DBs (idempotent)
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN excluded INTEGER DEFAULT 0;" 2>/dev/null || true
+sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN water_liters REAL;" 2>/dev/null || true
 
 # ── Query DB ────────────────────────────────────────────────
 echo "Querying carbon.db (since ${SINCE_LABEL})..."
 
 read -r TOTAL_SESSIONS TOTAL_CO2_RAW TOTAL_COST_RAW FIRST_DATE_RAW <<< \
   "$(sqlite3 "$DB_PATH" "SELECT COUNT(*), COALESCE(SUM(co2_grams), 0), COALESCE(SUM(cost_usd), 0), COALESCE(MIN(started_at), '') FROM sessions ${WHERE};" | tr '|' ' ')"
+
+TOTAL_WATER_RAW="$(sqlite3 "$DB_PATH" "SELECT COALESCE(SUM(water_liters), 0) FROM sessions ${WHERE};")"
 
 # Top 5 projects
 TOP_PROJECTS="$(sqlite3 -separator '|' "$DB_PATH" "SELECT project, SUM(co2_grams), COUNT(*) FROM sessions ${WHERE} GROUP BY project ORDER BY SUM(co2_grams) DESC LIMIT 5;")"
@@ -105,6 +108,19 @@ read -r TOTAL_CO2_VALUE TOTAL_CO2_UNIT <<< "$(format_co2 "$TOTAL_CO2_RAW")"
 TOTAL_COST="$(echo "$TOTAL_COST_RAW" | LC_ALL=C awk '{printf "%.0f", $1}')"
 FIRST_DATE="$(echo "$FIRST_DATE_RAW" | cut -c1-10)"
 EQUIV_KM="$(echo "$TOTAL_CO2_RAW" | LC_ALL=C awk '{printf "%.1f", $1/120}')"
+
+# Water: adaptive value/unit (L, or m³ above 1000 L), plus equivalences
+format_water() {
+  local liters="$1"
+  if (( $(echo "$liters >= 1000" | LC_ALL=C bc -l) )); then
+    echo "$(echo "$liters" | LC_ALL=C awk '{printf "%.1f", $1/1000}') m³"
+  else
+    echo "$(echo "$liters" | LC_ALL=C awk '{printf "%.0f", $1}') L"
+  fi
+}
+read -r TOTAL_WATER_VALUE TOTAL_WATER_UNIT <<< "$(format_water "$TOTAL_WATER_RAW")"
+EQUIV_SHOWERS="$(echo "$TOTAL_WATER_RAW" | LC_ALL=C awk '{printf "%.1f", $1/65}')"
+EQUIV_BOTTLES="$(echo "$TOTAL_WATER_RAW" | LC_ALL=C awk '{printf "%.0f", $1/0.5}')"
 
 # In default mode, label the report with the actual earliest session month, not Jan 1st
 # (transcripts older than ~30 days are purged, so the real data rarely starts in January).
@@ -207,6 +223,10 @@ inject_common() {
     -e "s|{{SINCE_LABEL}}|${SINCE_LABEL}|g" \
     -e "s|{{TOTAL_CO2_VALUE}}|${TOTAL_CO2_VALUE}|g" \
     -e "s|{{TOTAL_CO2_UNIT}}|${TOTAL_CO2_UNIT}|g" \
+    -e "s|{{TOTAL_WATER_VALUE}}|${TOTAL_WATER_VALUE}|g" \
+    -e "s|{{TOTAL_WATER_UNIT}}|${TOTAL_WATER_UNIT}|g" \
+    -e "s|{{EQUIV_SHOWERS}}|${EQUIV_SHOWERS}|g" \
+    -e "s|{{EQUIV_BOTTLES}}|${EQUIV_BOTTLES}|g" \
     -e "s|{{TOTAL_SESSIONS}}|${TOTAL_SESSIONS}|g" \
     -e "s|{{FIRST_DATE}}|${FIRST_DATE}|g" \
     -e "s|{{TOTAL_COST}}|${TOTAL_COST}|g" \
@@ -234,15 +254,15 @@ inject_common() {
 
 # Generate FR templates
 SINCE_LABEL="$SINCE_LABEL_FR"
-_t=$(mktemp /tmp/claude-carbon-summary-fr-XXXXXX); TMP_SUMMARY_FR="${_t}.html"; mv "$_t" "$TMP_SUMMARY_FR"
-_t=$(mktemp /tmp/claude-carbon-detailed-fr-XXXXXX); TMP_DETAILED_FR="${_t}.html"; mv "$_t" "$TMP_DETAILED_FR"
+_t=$(mktemp /tmp/claude-footprint-summary-fr-XXXXXX); TMP_SUMMARY_FR="${_t}.html"; mv "$_t" "$TMP_SUMMARY_FR"
+_t=$(mktemp /tmp/claude-footprint-detailed-fr-XXXXXX); TMP_DETAILED_FR="${_t}.html"; mv "$_t" "$TMP_DETAILED_FR"
 inject_common "$TEMPLATE_DIR/report-summary.html" "$TMP_SUMMARY_FR"
 inject_common "$TEMPLATE_DIR/report-detailed.html" "$TMP_DETAILED_FR"
 
 # Generate EN templates
 SINCE_LABEL="$SINCE_LABEL_EN"
-_t=$(mktemp /tmp/claude-carbon-summary-en-XXXXXX); TMP_SUMMARY_EN="${_t}.html"; mv "$_t" "$TMP_SUMMARY_EN"
-_t=$(mktemp /tmp/claude-carbon-detailed-en-XXXXXX); TMP_DETAILED_EN="${_t}.html"; mv "$_t" "$TMP_DETAILED_EN"
+_t=$(mktemp /tmp/claude-footprint-summary-en-XXXXXX); TMP_SUMMARY_EN="${_t}.html"; mv "$_t" "$TMP_SUMMARY_EN"
+_t=$(mktemp /tmp/claude-footprint-detailed-en-XXXXXX); TMP_DETAILED_EN="${_t}.html"; mv "$_t" "$TMP_DETAILED_EN"
 inject_common "$TEMPLATE_DIR/report-summary-en.html" "$TMP_SUMMARY_EN"
 inject_common "$TEMPLATE_DIR/report-detailed-en.html" "$TMP_DETAILED_EN"
 
@@ -250,7 +270,7 @@ inject_common "$TEMPLATE_DIR/report-detailed-en.html" "$TMP_DETAILED_EN"
 TMP_SUMMARY="$TMP_SUMMARY_FR"
 
 # Inject monthly bars via python (bash/sed can't handle % in style attrs)
-_t=$(mktemp /tmp/claude-carbon-monthly-XXXXXX); TMP_MONTHLY="${_t}.txt"; mv "$_t" "$TMP_MONTHLY"
+_t=$(mktemp /tmp/claude-footprint-monthly-XXXXXX); TMP_MONTHLY="${_t}.txt"; mv "$_t" "$TMP_MONTHLY"
 echo "$MONTHLY_DATA" > "$TMP_MONTHLY"
 
 export TMP_SUMMARY TMP_SUMMARY_EN TMP_MONTHLY
@@ -391,13 +411,13 @@ const { chromium } = require('${PW_PATH}');
 }
 
 if [ -z "$LANG_FILTER" ] || [ "$LANG_FILTER" = "fr" ]; then
-  export_png "$TMP_SUMMARY_FR" "$EXPORT_DIR/claude-carbon-summary-fr-${TODAY}.png" "Summary FR"
-  export_png "$TMP_DETAILED_FR" "$EXPORT_DIR/claude-carbon-detailed-fr-${TODAY}.png" "Detailed FR"
+  export_png "$TMP_SUMMARY_FR" "$EXPORT_DIR/claude-footprint-summary-fr-${TODAY}.png" "Summary FR"
+  export_png "$TMP_DETAILED_FR" "$EXPORT_DIR/claude-footprint-detailed-fr-${TODAY}.png" "Detailed FR"
 fi
 
 if [ -z "$LANG_FILTER" ] || [ "$LANG_FILTER" = "en" ]; then
-  export_png "$TMP_SUMMARY_EN" "$EXPORT_DIR/claude-carbon-summary-en-${TODAY}.png" "Summary EN"
-  export_png "$TMP_DETAILED_EN" "$EXPORT_DIR/claude-carbon-detailed-en-${TODAY}.png" "Detailed EN"
+  export_png "$TMP_SUMMARY_EN" "$EXPORT_DIR/claude-footprint-summary-en-${TODAY}.png" "Summary EN"
+  export_png "$TMP_DETAILED_EN" "$EXPORT_DIR/claude-footprint-detailed-en-${TODAY}.png" "Detailed EN"
 fi
 
 echo ""

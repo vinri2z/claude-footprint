@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-21
+
+### feat: water footprint tracking + rebrand to claude-footprint
+
+The project is now **claude-footprint** (maintained by Vincent Rizzo, `github.com/vinri2z`), tracking both the carbon **and water** footprint of Claude Code sessions.
+
+- **Water (liters).** Each session now also stores `water_liters`, derived from the same inference energy as CO2 using a water-intensity factor (`WIF = onsite WUE 0.18 + offsite EWIF 3.14 = 3.32 L/kWh`) instead of the carbon intensity (`CIF = 287 gCO2e/kWh`). Per-model water factors (`co2_factor × 3.32/287`, in L/Mtok) live in `data/factors.json` under `water_factors`; the same `cache_read_factor` applies. Deliberately conservative (over-estimated): the offsite term uses the US-grid average, not the more efficient AWS-region mix. Sources: AWS 2024 WUE; Li et al. 2023 (arXiv:2304.03271); Reig/WRI EWIF; EESI. Documented in METHODOLOGY.md.
+- **Integrated everywhere.** Water is computed in `persist-session.sh`, `backfill.sh`, and `recompute.sh`, shown live in the status line (`💧 N L`), and aggregated in reports + PNG cards (with bottle/shower equivalences). Schema gains a `water_liters` column via the usual idempotent `ALTER TABLE` (new installs get it in `CREATE TABLE`); raw tokens are preserved so `recompute.sh` regenerates water alongside cost/CO2.
+- **Combined slash commands.** `/carbon-report` and `/carbon-card` are replaced by `/footprint-report` and `/footprint-card`, each showing CO2 and water together. The installer removes the old command links.
+- **Golden vectors.** All 12 vectors in `tests/methodology-vectors.json` gain an `expected_water_liters`; `run-vectors.sh` verifies CO2, cost, and water. CO2 and cost values are byte-identical to before — water is purely additive.
+- The internal data path (`~/.claude/claude-carbon/carbon.db`) and `CLAUDE_CARBON_*` env vars are unchanged for backward compatibility.
+
 ## 2026-06-12
 
 ### feat: exclude non-Anthropic models from cost/CO2 accounting (#7)

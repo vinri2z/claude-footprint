@@ -1,28 +1,29 @@
 {
-  "name": "claude-carbon",
+  "name": "claude-footprint",
   "owner": {
-    "name": "Gaetan Wittebolle"
+    "name": "Vincent Rizzo"
   },
   "metadata": {
-    "description": "Track the carbon footprint of your Claude Code sessions"
+    "description": "Track the carbon and water footprint of your Claude Code sessions"
   },
   "plugins": [
     {
-      "name": "claude-carbon",
+      "name": "claude-footprint",
       "source": {
         "source": "url",
-        "url": "https://github.com/gwittebolle/claude-carbon.git"
+        "url": "https://github.com/vinri2z/claude-footprint.git"
       },
-      "description": "Track the carbon footprint of your Claude Code sessions",
-      "version": "1.0.0",
+      "description": "Track the carbon and water footprint of your Claude Code sessions",
+      "version": "1.1.0",
       "author": {
-        "name": "Gaetan Wittebolle"
+        "name": "Vincent Rizzo"
       },
-      "homepage": "https://github.com/gwittebolle/claude-carbon",
-      "repository": "https://github.com/gwittebolle/claude-carbon",
+      "homepage": "https://github.com/vinri2z/claude-footprint",
+      "repository": "https://github.com/vinri2z/claude-footprint",
       "license": "MIT",
       "keywords": [
         "carbon-footprint",
+        "water-footprint",
         "sustainability",
         "claude-code",
         "green-it"

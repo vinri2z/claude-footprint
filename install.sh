@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# install.sh — One-line installer for claude-carbon.
-# Usage: curl -fsSL https://raw.githubusercontent.com/gwittebolle/claude-carbon/main/install.sh | bash
+# install.sh — One-line installer for claude-footprint.
+# Usage: curl -fsSL https://raw.githubusercontent.com/vinri2z/claude-footprint/main/install.sh | bash
 
-INSTALL_DIR="${CLAUDE_CARBON_DIR:-$HOME/code/claude-carbon}"
+# CLAUDE_FOOTPRINT_DIR is preferred; CLAUDE_CARBON_DIR stays as a fallback for older installs.
+INSTALL_DIR="${CLAUDE_FOOTPRINT_DIR:-${CLAUDE_CARBON_DIR:-$HOME/code/claude-footprint}}"
 SETTINGS_FILE="${HOME}/.claude/settings.json"
 
 echo ""
-echo "  claude-carbon installer"
-echo "  Track the carbon footprint of your Claude Code sessions."
+echo "  claude-footprint installer"
+echo "  Track the carbon and water footprint of your Claude Code sessions."
 echo ""
 
 # 1. Check dependencies
@@ -32,7 +33,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
 else
   echo "Cloning to $INSTALL_DIR..."
   mkdir -p "$(dirname "$INSTALL_DIR")"
-  git clone --quiet https://github.com/gwittebolle/claude-carbon.git "$INSTALL_DIR"
+  git clone --quiet https://github.com/vinri2z/claude-footprint.git "$INSTALL_DIR"
 fi
 
 # 3. Run setup (creates DB, backfills history)
@@ -56,7 +57,7 @@ if [ -f "$SETTINGS_FILE" ]; then
   HAS_STATUSLINE="$(echo "$EXISTING" | jq 'has("statusLine")' 2>/dev/null)" || HAS_STATUSLINE="false"
   if [ "$HAS_STATUSLINE" = "true" ]; then
     CURRENT_SL="$(echo "$EXISTING" | jq -r '.statusLine.command // ""' 2>/dev/null)"
-    if echo "$CURRENT_SL" | grep -q "claude-carbon"; then
+    if echo "$CURRENT_SL" | grep -qE "claude-(carbon|footprint)"; then
       echo "  statusLine: already configured (skipped)"
     else
       echo "  statusLine: skipped (already set to another tool)"
@@ -103,13 +104,21 @@ else
   echo "  Created $SETTINGS_FILE"
 fi
 
-# 5. Install /carbon-report slash command
+# 5. Install /footprint-report and /footprint-card slash commands
 COMMANDS_DIR="${HOME}/.claude/commands"
-SKILL_SOURCE="${INSTALL_DIR}/skills/carbon-report/SKILL.md"
-SKILL_LINK="${COMMANDS_DIR}/carbon-report.md"
 
 mkdir -p "$COMMANDS_DIR"
-for SKILL_NAME in carbon-report carbon-card; do
+
+# Remove the old carbon-* command links (renamed to footprint-*)
+for OLD_NAME in carbon-report carbon-card; do
+  OLD_LNK="${COMMANDS_DIR}/${OLD_NAME}.md"
+  if [ -L "$OLD_LNK" ] || [ -f "$OLD_LNK" ]; then
+    rm -f "$OLD_LNK"
+    echo "  /${OLD_NAME}: removed (renamed to footprint-*)"
+  fi
+done
+
+for SKILL_NAME in footprint-report footprint-card; do
   SKILL_SRC="${INSTALL_DIR}/skills/${SKILL_NAME}/SKILL.md"
   SKILL_LNK="${COMMANDS_DIR}/${SKILL_NAME}.md"
   if [ -L "$SKILL_LNK" ] || [ -f "$SKILL_LNK" ]; then
@@ -121,5 +130,5 @@ for SKILL_NAME in carbon-report carbon-card; do
 done
 
 echo ""
-echo "Done. Restart Claude Code to see your CO2 in the status line."
+echo "Done. Restart Claude Code to see your CO2 and water in the status line."
 echo ""

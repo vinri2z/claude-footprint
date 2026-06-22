@@ -27,6 +27,12 @@ F_SON_IN="$(jq -r '.models.sonnet.input' "$FACTORS_FILE")"; F_SON_OUT="$(jq -r '
 F_HAI_IN="$(jq -r '.models.haiku.input' "$FACTORS_FILE")";  F_HAI_OUT="$(jq -r '.models.haiku.output' "$FACTORS_FILE")"
 CRF="$(jq -r '.cache_read_factor // 0.08' "$FACTORS_FILE")"
 
+# Water factors (liters per Mtok); cache_read reuses CRF
+W_FAB_IN="$(jq -r '.water_factors.fable.input' "$FACTORS_FILE")";  W_FAB_OUT="$(jq -r '.water_factors.fable.output' "$FACTORS_FILE")"
+W_OPUS_IN="$(jq -r '.water_factors.opus.input' "$FACTORS_FILE")";  W_OPUS_OUT="$(jq -r '.water_factors.opus.output' "$FACTORS_FILE")"
+W_SON_IN="$(jq -r '.water_factors.sonnet.input' "$FACTORS_FILE")"; W_SON_OUT="$(jq -r '.water_factors.sonnet.output' "$FACTORS_FILE")"
+W_HAI_IN="$(jq -r '.water_factors.haiku.input' "$FACTORS_FILE")";  W_HAI_OUT="$(jq -r '.water_factors.haiku.output' "$FACTORS_FILE")"
+
 # Prices (USD per Mtok) + cache multipliers
 P_FAB_IN="$(jq -r '.models.fable.input' "$PRICES_FILE")";  P_FAB_OUT="$(jq -r '.models.fable.output' "$PRICES_FILE")"
 P_OPUS_IN="$(jq -r '.models.opus.input' "$PRICES_FILE")";  P_OPUS_OUT="$(jq -r '.models.opus.output' "$PRICES_FILE")"
@@ -66,21 +72,21 @@ while [ "$i" -lt "$N" ]; do
     (.input_tokens // 0), (.cache_creation_tokens // 0),
     (.cache_read_tokens // 0), (.output_tokens // 0),
     (if .excluded == true then "1" else "0" end),
-    (.expected_co2_grams // 0), (.expected_cost_usd // 0)
+    (.expected_co2_grams // 0), (.expected_cost_usd // 0), (.expected_water_liters // 0)
   ] | @tsv' "$VECTORS_FILE")"
-  IFS="$(printf '\t')" read -r ID MODEL IN CW CR OUT EXCLUDED EXP_CO2 EXP_COST <<EOF
+  IFS="$(printf '\t')" read -r ID MODEL IN CW CR OUT EXCLUDED EXP_CO2 EXP_COST EXP_WATER <<EOF
 $ROW
 EOF
 
   # Mirror persist-session.sh compute_co2: exclusion first, then family pick.
   if is_excluded_model "$MODEL"; then
-    CO2="0"; COST="0"
+    CO2="0"; COST="0"; WATER="0"
     if [ "$EXCLUDED" != "1" ]; then
       echo "FAIL ${ID}: model '${MODEL}' is excluded by the plugin but the vector is not marked excluded"
       FAILURES=$((FAILURES + 1)); i=$((i + 1)); continue
     fi
-    # Excluded vectors expect 0/0 from the plugin (expected_* is null upstream).
-    EXP_CO2="0"; EXP_COST="0"
+    # Excluded vectors expect 0/0/0 from the plugin (expected_* is null upstream).
+    EXP_CO2="0"; EXP_COST="0"; EXP_WATER="0"
   else
     if [ "$EXCLUDED" = "1" ]; then
       echo "FAIL ${ID}: vector marked excluded but model '${MODEL}' is not excluded by the plugin"
@@ -91,16 +97,18 @@ EOF
     echo "$MODEL" | grep -qi "opus" && FAMILY="opus"
     echo "$MODEL" | grep -qi "haiku" && FAMILY="haiku"
     case "$FAMILY" in
-      fable) FIN="$F_FAB_IN";  FOUT="$F_FAB_OUT";  PIN="$P_FAB_IN";  POUT="$P_FAB_OUT" ;;
-      opus)  FIN="$F_OPUS_IN"; FOUT="$F_OPUS_OUT"; PIN="$P_OPUS_IN"; POUT="$P_OPUS_OUT" ;;
-      haiku) FIN="$F_HAI_IN";  FOUT="$F_HAI_OUT";  PIN="$P_HAI_IN";  POUT="$P_HAI_OUT" ;;
-      *)     FIN="$F_SON_IN";  FOUT="$F_SON_OUT";  PIN="$P_SON_IN";  POUT="$P_SON_OUT" ;;
+      fable) FIN="$F_FAB_IN";  FOUT="$F_FAB_OUT";  PIN="$P_FAB_IN";  POUT="$P_FAB_OUT";  WIN="$W_FAB_IN";  WOUT="$W_FAB_OUT" ;;
+      opus)  FIN="$F_OPUS_IN"; FOUT="$F_OPUS_OUT"; PIN="$P_OPUS_IN"; POUT="$P_OPUS_OUT"; WIN="$W_OPUS_IN"; WOUT="$W_OPUS_OUT" ;;
+      haiku) FIN="$F_HAI_IN";  FOUT="$F_HAI_OUT";  PIN="$P_HAI_IN";  POUT="$P_HAI_OUT";  WIN="$W_HAI_IN";  WOUT="$W_HAI_OUT" ;;
+      *)     FIN="$F_SON_IN";  FOUT="$F_SON_OUT";  PIN="$P_SON_IN";  POUT="$P_SON_OUT";  WIN="$W_SON_IN";  WOUT="$W_SON_OUT" ;;
     esac
     # Same awk expressions and printf precision as persist-session.sh
     CO2="$(echo "$IN $CW $CR $OUT $FIN $FOUT $CRF" | LC_ALL=C awk \
       '{printf "%.4f", (($1 + $2) * $5 + $3 * ($5 * $7) + $4 * $6) / 1000000}')"
     COST="$(echo "$IN $CW $CR $OUT $PIN $POUT $CW_MULT $CR_MULT" | LC_ALL=C awk \
       '{printf "%.6f", ($1 * $5 + $2 * ($5 * $7) + $3 * ($5 * $8) + $4 * $6) / 1000000}')"
+    WATER="$(echo "$IN $CW $CR $OUT $WIN $WOUT $CRF" | LC_ALL=C awk \
+      '{printf "%.6f", (($1 + $2) * $5 + $3 * ($5 * $7) + $4 * $6) / 1000000}')"
   fi
 
   OK=1
@@ -112,8 +120,12 @@ EOF
     echo "FAIL ${ID}: cost_usd ${COST} != expected ${EXP_COST} (model ${MODEL})"
     OK=0
   fi
+  if ! close_enough "$WATER" "$EXP_WATER"; then
+    echo "FAIL ${ID}: water_liters ${WATER} != expected ${EXP_WATER} (model ${MODEL})"
+    OK=0
+  fi
   if [ "$OK" = "1" ]; then
-    echo "PASS ${ID}: co2=${CO2} g, cost=\$${COST}"
+    echo "PASS ${ID}: co2=${CO2} g, cost=\$${COST}, water=${WATER} L"
     PASSED=$((PASSED + 1))
   else
     FAILURES=$((FAILURES + 1))

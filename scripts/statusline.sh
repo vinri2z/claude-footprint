@@ -37,13 +37,20 @@ fi
 if echo "$MODEL_ID" | grep -qi "claude"; then
   FACTOR_IN="$(jq -r ".models.${MODEL_FAMILY}.input // 190" "$FACTORS_FILE")"
   FACTOR_OUT="$(jq -r ".models.${MODEL_FAMILY}.output // 1140" "$FACTORS_FILE")"
+  WATER_IN="$(jq -r ".water_factors.${MODEL_FAMILY}.input // 2.198" "$FACTORS_FILE")"
+  WATER_OUT="$(jq -r ".water_factors.${MODEL_FAMILY}.output // 13.187" "$FACTORS_FILE")"
 else
   FACTOR_IN="0"
   FACTOR_OUT="0"
+  WATER_IN="0"
+  WATER_OUT="0"
 fi
 
 # Calculate CO2 in grams: (input * factor_in + output * factor_out) / 1_000_000
 CO2_G="$(echo "$INPUT_TOKENS $FACTOR_IN $OUTPUT_TOKENS $FACTOR_OUT" | LC_ALL=C awk '{printf "%.0f", ($1 * $2 + $3 * $4) / 1000000}')"
+
+# Calculate water in liters: (input * water_in + output * water_out) / 1_000_000
+WATER_L="$(echo "$INPUT_TOKENS $WATER_IN $OUTPUT_TOKENS $WATER_OUT" | LC_ALL=C awk '{printf "%.4f", ($1 * $2 + $3 * $4) / 1000000}')"
 
 # Format CO2 with adaptive unit
 if [ "$CO2_G" -ge 1000 ] 2>/dev/null; then
@@ -51,6 +58,9 @@ if [ "$CO2_G" -ge 1000 ] 2>/dev/null; then
 else
   CO2_DISPLAY="${CO2_G}g CO₂"
 fi
+
+# Format water with adaptive unit (mL under 1 L, else L)
+WATER_DISPLAY="$(echo "$WATER_L" | LC_ALL=C awk '{ if ($1 >= 1) printf "%.1fL", $1; else printf "%.0fmL", $1*1000 }')"
 
 # Round cost to 2 decimals
 COST_DISPLAY="$(echo "$COST_USD" | LC_ALL=C awk '{printf "%.2f", $1}')"
@@ -185,4 +195,4 @@ if [ -n "$CURRENT_DIR" ] && command -v git &>/dev/null; then
   [ -n "$BRANCH" ] && [ "$BRANCH" != "HEAD" ] && BRANCH_SUFFIX=" ⌥ ${BRANCH}"
 fi
 
-echo "${PROJECT}${BRANCH_SUFFIX} | ${DOT} ${DISPLAY_NAME} ${PROGRESS_BAR} ${PCT_DISPLAY} | \$${COST_DISPLAY} · ${CO2_DISPLAY}${USAGE_SEGMENT}"
+echo "${PROJECT}${BRANCH_SUFFIX} | ${DOT} ${DISPLAY_NAME} ${PROGRESS_BAR} ${PCT_DISPLAY} | \$${COST_DISPLAY} · ${CO2_DISPLAY} · 💧 ${WATER_DISPLAY}${USAGE_SEGMENT}"
