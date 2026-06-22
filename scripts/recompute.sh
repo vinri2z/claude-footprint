@@ -21,12 +21,21 @@ DB_PATH="${CLAUDE_CARBON_DB:-${HOME}/.claude/claude-carbon/carbon.db}"
 
 [ -f "$DB_PATH" ] || { echo "No database at ${DB_PATH}" >&2; exit 1; }
 
+# Ensure the water column exists on pre-existing DBs (idempotent)
+sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN water_liters REAL;" 2>/dev/null || true
+
 # Emission factors (gCO2e per million tokens) + cache_read energy fraction
 F_FAB_IN="$(jq -r '.models.fable.input // 1000' "$FACTORS_FILE")"; F_FAB_OUT="$(jq -r '.models.fable.output // 6000' "$FACTORS_FILE")"
 F_OPUS_IN="$(jq -r '.models.opus.input' "$FACTORS_FILE")";    F_OPUS_OUT="$(jq -r '.models.opus.output' "$FACTORS_FILE")"
 F_SON_IN="$(jq -r '.models.sonnet.input' "$FACTORS_FILE")";   F_SON_OUT="$(jq -r '.models.sonnet.output' "$FACTORS_FILE")"
 F_HAI_IN="$(jq -r '.models.haiku.input' "$FACTORS_FILE")";    F_HAI_OUT="$(jq -r '.models.haiku.output' "$FACTORS_FILE")"
 CRF="$(jq -r '.cache_read_factor // 0.08' "$FACTORS_FILE")"
+
+# Water factors (liters per million tokens) + cache_read energy fraction (reuses CRF)
+W_FAB_IN="$(jq -r '.water_factors.fable.input // 11.568' "$FACTORS_FILE")";  W_FAB_OUT="$(jq -r '.water_factors.fable.output // 69.408' "$FACTORS_FILE")"
+W_OPUS_IN="$(jq -r '.water_factors.opus.input // 5.784' "$FACTORS_FILE")";   W_OPUS_OUT="$(jq -r '.water_factors.opus.output // 34.704' "$FACTORS_FILE")"
+W_SON_IN="$(jq -r '.water_factors.sonnet.input // 2.198' "$FACTORS_FILE")";  W_SON_OUT="$(jq -r '.water_factors.sonnet.output // 13.187' "$FACTORS_FILE")"
+W_HAI_IN="$(jq -r '.water_factors.haiku.input // 1.099' "$FACTORS_FILE")";   W_HAI_OUT="$(jq -r '.water_factors.haiku.output // 6.594' "$FACTORS_FILE")"
 
 # Prices (USD per million tokens) + cache multipliers
 P_FAB_IN="$(jq -r '.models.fable.input // 10' "$PRICES_FILE")"; P_FAB_OUT="$(jq -r '.models.fable.output // 50' "$PRICES_FILE")"
@@ -43,24 +52,26 @@ CR_MULT="$(jq -r '.cache_read_multiplier // 0.1' "$PRICES_FILE")"
 #         + cache_read_tokens * (pin*CR_MULT)                       -- cache read
 #         + output_tokens * pout) / 1e6
 update_family() {
-  local where="$1" fin="$2" fout="$3" pin="$4" pout="$5"
+  local where="$1" fin="$2" fout="$3" pin="$4" pout="$5" win="$6" wout="$7"
   sqlite3 "$DB_PATH" "
     UPDATE sessions SET
       co2_grams = (input_tokens*${fin} + cache_read_tokens*(${fin}*${CRF}) + output_tokens*${fout}) / 1000000.0,
-      cost_usd  = ((input_tokens - cache_creation_tokens)*${pin} + cache_creation_tokens*(${pin}*${CW_MULT}) + cache_read_tokens*(${pin}*${CR_MULT}) + output_tokens*${pout}) / 1000000.0
+      cost_usd  = ((input_tokens - cache_creation_tokens)*${pin} + cache_creation_tokens*(${pin}*${CW_MULT}) + cache_read_tokens*(${pin}*${CR_MULT}) + output_tokens*${pout}) / 1000000.0,
+      water_liters = (input_tokens*${win} + cache_read_tokens*(${win}*${CRF}) + output_tokens*${wout}) / 1000000.0
     WHERE methodology_version >= 2 AND COALESCE(excluded, 0) = 0 AND ${where};
   "
 }
 
-update_family "(model LIKE '%fable%' OR model LIKE '%mythos%')" "$F_FAB_IN" "$F_FAB_OUT" "$P_FAB_IN" "$P_FAB_OUT"
-update_family "model LIKE '%opus%'"  "$F_OPUS_IN" "$F_OPUS_OUT" "$P_OPUS_IN" "$P_OPUS_OUT"
-update_family "model LIKE '%haiku%'" "$F_HAI_IN"  "$F_HAI_OUT"  "$P_HAI_IN"  "$P_HAI_OUT"
-update_family "model NOT LIKE '%fable%' AND model NOT LIKE '%mythos%' AND model NOT LIKE '%opus%' AND model NOT LIKE '%haiku%'" "$F_SON_IN" "$F_SON_OUT" "$P_SON_IN" "$P_SON_OUT"
+update_family "(model LIKE '%fable%' OR model LIKE '%mythos%')" "$F_FAB_IN" "$F_FAB_OUT" "$P_FAB_IN" "$P_FAB_OUT" "$W_FAB_IN" "$W_FAB_OUT"
+update_family "model LIKE '%opus%'"  "$F_OPUS_IN" "$F_OPUS_OUT" "$P_OPUS_IN" "$P_OPUS_OUT" "$W_OPUS_IN" "$W_OPUS_OUT"
+update_family "model LIKE '%haiku%'" "$F_HAI_IN"  "$F_HAI_OUT"  "$P_HAI_IN"  "$P_HAI_OUT"  "$W_HAI_IN"  "$W_HAI_OUT"
+update_family "model NOT LIKE '%fable%' AND model NOT LIKE '%mythos%' AND model NOT LIKE '%opus%' AND model NOT LIKE '%haiku%'" "$F_SON_IN" "$F_SON_OUT" "$P_SON_IN" "$P_SON_OUT" "$W_SON_IN" "$W_SON_OUT"
 
 RECOMPUTED="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sessions WHERE methodology_version >= 2 AND COALESCE(excluded, 0) = 0;")"
 LEGACY="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sessions WHERE methodology_version IS NULL OR methodology_version < 2;")"
 TOTAL_COST="$(sqlite3 "$DB_PATH" "SELECT printf('%.0f', COALESCE(SUM(cost_usd),0)) FROM sessions;")"
 TOTAL_CO2_KG="$(sqlite3 "$DB_PATH" "SELECT printf('%.0f', COALESCE(SUM(co2_grams),0)/1000.0) FROM sessions;")"
+TOTAL_WATER_L="$(sqlite3 "$DB_PATH" "SELECT printf('%.0f', COALESCE(SUM(water_liters),0)) FROM sessions;")"
 
 echo "Recomputed ${RECOMPUTED} rows from raw tokens (left ${LEGACY} legacy rows untouched)."
-echo "DB totals now: \$${TOTAL_COST} / ${TOTAL_CO2_KG} kg CO2."
+echo "DB totals now: \$${TOTAL_COST} / ${TOTAL_CO2_KG} kg CO2 / ${TOTAL_WATER_L} L water."

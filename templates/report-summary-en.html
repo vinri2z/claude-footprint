@@ -266,14 +266,15 @@
       </div>
 
       <div class="topbar">
-        <div class="logo">claude <span>carbon</span></div>
+        <div class="logo">claude <span>footprint</span></div>
         <div class="date">{{TODAY}}</div>
       </div>
 
       <div class="hero">
-        <div class="hero-context">My Claude Code carbon footprint</div>
+        <div class="hero-context">My Claude Code footprint</div>
         <div class="hero-number">{{TOTAL_CO2_VALUE}}</div>
         <div class="hero-unit">{{TOTAL_CO2_UNIT}} of estimated CO₂</div>
+        <div class="hero-unit">💧 {{TOTAL_WATER_VALUE}} {{TOTAL_WATER_UNIT}} of estimated water</div>
         <div class="hero-detail">
           <strong>{{TOTAL_SESSIONS}} sessions</strong> since {{SINCE_LABEL}}
         </div>
@@ -294,6 +295,10 @@
           <div class="metric-label">car equivalent</div>
         </div>
         <div class="metric">
+          <div class="metric-val">{{EQUIV_SHOWERS}}</div>
+          <div class="metric-label">showers (65 L)</div>
+        </div>
+        <div class="metric">
           <div class="metric-val">${{TOTAL_COST}}</div>
           <div class="metric-label">estimated API cost</div>
         </div>
@@ -309,7 +314,7 @@
         <img class="footer-logo" src="logo.png" alt="" />
         <div class="cta">
           <span class="cta-label">Measure yours</span>
-          <span class="cta-link">github.com/gwittebolle/claude-carbon</span>
+          <span class="cta-link">github.com/vinri2z/claude-footprint</span>
         </div>
         <span class="open-source">open source</span>
       </div>

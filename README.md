@@ -1,26 +1,26 @@
-# claude-carbon
+# claude-footprint
 
-[![GitHub stars](https://img.shields.io/github/stars/gwittebolle/claude-carbon)](https://github.com/gwittebolle/claude-carbon/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/vinri2z/claude-footprint)](https://github.com/vinri2z/claude-footprint/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/gwittebolle/claude-carbon)](https://github.com/gwittebolle/claude-carbon/releases)
+[![GitHub release](https://img.shields.io/github/v/release/vinri2z/claude-footprint)](https://github.com/vinri2z/claude-footprint/releases)
 
-Track the carbon footprint of your Claude Code sessions.
+Track the carbon **and water** footprint of your Claude Code sessions.
 
 **1. Install (or update):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gwittebolle/claude-carbon/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vinri2z/claude-footprint/main/install.sh | bash
 ```
 
 Same command to install and to update to the latest version.
 
-**2. Restart Claude Code.** Your CO2 appears in the status line:
+**2. Restart Claude Code.** Your CO2 and water appear in the status line:
 
 ```
-claude-carbon ⌥ main | 🟢 Opus 4.7 ▓▓▓░░░░░░░ 35% | $0.50 · 65g CO₂ | Use 24% ↻13:00
+claude-footprint ⌥ main | 🟢 Opus 4.7 ▓▓▓░░░░░░░ 35% | $0.50 · 65g CO₂ · 💧 0.8L | Use 24% ↻13:00
 ```
 
-Segments, left to right: project + git branch, model + context window %, session cost + CO2, 5h block usage % + reset time. A 🔥 prefix appears when the sustained burn rate would overshoot 100% of the limit by the end of the 5h block (after a 15 min grace window, only once usage reaches 15%).
+Segments, left to right: project + git branch, model + context window %, session cost + CO2 + water, 5h block usage % + reset time. A 🔥 prefix appears when the sustained burn rate would overshoot 100% of the limit by the end of the 5h block (after a 15 min grace window, only once usage reaches 15%).
 
 **5h quota source.** The percentage comes directly from Anthropic's `/api/oauth/usage` endpoint (the same data Claude Code displays in `/usage`). No heuristic, no token-limit file to seed. Two sources in order:
 
@@ -31,15 +31,15 @@ Accurate on every plan, including Max 20x.
 
 **3. Use the slash commands:**
 
-- `/carbon-report` - text report with totals, equivalences, top sessions
-- `/carbon-card` - generate shareable PNG report cards (requires `playwright-core`, see [Dependencies](#dependencies))
+- `/footprint-report` - text report with totals, equivalences, top sessions
+- `/footprint-card` - generate shareable PNG report cards (requires `playwright-core`, see [Dependencies](#dependencies))
 
 ## What it does
 
-- Adds a live CO2 estimate to the Claude Code status line, next to the session cost
+- Adds a live CO2 and water estimate to the Claude Code status line, next to the session cost
 - Persists each session to a local SQLite database
 - Backfills historical data from existing `~/.claude` transcripts
-- Two slash commands: `/carbon-report` (text) and `/carbon-card` (PNG)
+- Two slash commands: `/footprint-report` (text) and `/footprint-card` (PNG)
 
 ## Example report
 
@@ -47,17 +47,17 @@ Accurate on every plan, including Max 20x.
   <img src="docs/example-report-v2.png" alt="Claude Carbon Report" width="540">
 </p>
 
-Generate yours with `/carbon-card` in Claude Code. Exports summary and detailed PNGs to `exports/`.
+Generate yours with `/footprint-card` in Claude Code. Exports summary and detailed PNGs to `exports/`.
 
 <details>
 <summary>Advanced options (CLI)</summary>
 
 ```bash
 # Since a specific date
-bash ~/code/claude-carbon/scripts/generate-report.sh --since 2026-03-01
+bash ~/code/claude-footprint/scripts/generate-report.sh --since 2026-03-01
 
 # All time
-bash ~/code/claude-carbon/scripts/generate-report.sh --all
+bash ~/code/claude-footprint/scripts/generate-report.sh --all
 ```
 
 </details>
@@ -66,7 +66,7 @@ bash ~/code/claude-carbon/scripts/generate-report.sh --all
 <summary>Custom install directory</summary>
 
 ```bash
-CLAUDE_CARBON_DIR=~/my-path/claude-carbon curl -fsSL https://raw.githubusercontent.com/gwittebolle/claude-carbon/main/install.sh | bash
+CLAUDE_FOOTPRINT_DIR=~/my-path/claude-footprint curl -fsSL https://raw.githubusercontent.com/vinri2z/claude-footprint/main/install.sh | bash
 ```
 
 </details>
@@ -75,8 +75,8 @@ CLAUDE_CARBON_DIR=~/my-path/claude-carbon curl -fsSL https://raw.githubuserconte
 <summary>Manual install</summary>
 
 ```bash
-git clone https://github.com/gwittebolle/claude-carbon.git ~/code/claude-carbon
-bash ~/code/claude-carbon/scripts/setup.sh
+git clone https://github.com/vinri2z/claude-footprint.git ~/code/claude-footprint
+bash ~/code/claude-footprint/scripts/setup.sh
 ```
 
 Then add to `~/.claude/settings.json`:
@@ -85,7 +85,7 @@ Then add to `~/.claude/settings.json`:
 {
   "statusLine": {
     "type": "command",
-    "command": "~/code/claude-carbon/scripts/statusline.sh"
+    "command": "~/code/claude-footprint/scripts/statusline.sh"
   },
   "hooks": {
     "Stop": [
@@ -94,7 +94,7 @@ Then add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "~/code/claude-carbon/scripts/persist-session.sh"
+            "command": "~/code/claude-footprint/scripts/persist-session.sh"
           }
         ]
       }
@@ -137,8 +137,8 @@ bash scripts/recompute.sh
 
 | Command          | What it does                                        |
 | ---------------- | --------------------------------------------------- |
-| `/carbon-report` | Text report with totals, equivalences, top sessions |
-| `/carbon-card`   | Generate shareable PNG report cards                 |
+| `/footprint-report` | Text report with CO2 + water totals, equivalences, top sessions |
+| `/footprint-card`   | Generate shareable PNG report cards (CO2 + water)   |
 
 <details>
 <summary>Scripts (run automatically, rarely needed manually)</summary>
@@ -150,7 +150,7 @@ bash scripts/recompute.sh
 | `persist-session.sh` | Stop hook (saves session data on exit)                                                    |
 | `safety-rescan.sh`   | SessionStart hook (throttled background re-scan, catches missed sessions)                 |
 | `backfill.sh`        | Re-parse all historical JSONL transcripts (incl. subagents)                               |
-| `recompute.sh`       | Re-derive cost/CO2 from stored tokens after a price/factor change (no transcripts needed) |
+| `recompute.sh`       | Re-derive cost/CO2/water from stored tokens after a price/factor change (no transcripts needed) |
 | `generate-report.sh` | Export PNG report cards (CLI, with `--since` / `--all`)                                   |
 
 Note: backfill now derives project names from the transcript's `cwd` (matching the live hook). Sessions backfilled before this change keep their old, possibly truncated names; delete those rows and re-run `backfill.sh` to normalize them.
@@ -178,9 +178,22 @@ Factors from [Jegham et al. 2025](https://arxiv.org/abs/2505.09598), a peer-revi
 
 Factors are editable in `data/factors.json`. See [METHODOLOGY.md](METHODOLOGY.md) for the full scientific basis, formula, and equivalences.
 
+### Water factors
+
+Water is derived from the same inference energy as CO2, using a water-intensity factor (`WIF = onsite WUE 0.18 + offsite EWIF 3.14 = 3.32 L/kWh`) in place of the carbon intensity (`CIF = 0.287 kgCO2e/kWh`). Per-model water factor = `co2_factor × 3.32 / 287 ≈ co2_factor × 0.0115679 L/gCO2e`.
+
+| Model  | Input (L/Mtok) | Output (L/Mtok) |
+| ------ | -------------- | --------------- |
+| Fable  | 11.568         | 69.408          |
+| Opus   | 5.784          | 34.704          |
+| Sonnet | 2.198          | 13.187          |
+| Haiku  | 1.099          | 6.594           |
+
+This is a **deliberately conservative (over-estimated)** figure: the offsite term uses the US-grid average water intensity, not the more efficient AWS-region mix. Measured in liters, reported next to CO2 everywhere. Water factors are editable in `data/factors.json`. See [METHODOLOGY.md](METHODOLOGY.md) for sources (AWS 2024 WUE; Li et al. 2023, arXiv:2304.03271; Reig/WRI EWIF; EESI).
+
 ### Golden vectors
 
-The methodology is pinned by golden test vectors in [`tests/methodology-vectors.json`](tests/methodology-vectors.json): hand-computed expected CO2/cost values for known token breakdowns, replayed by `bash tests/run-vectors.sh` in CI on every push. Downstream consumers (such as TokenClimate) keep a copy of this file and verify weekly that their implementation produces the same numbers. If you edit `data/factors.json` or `data/prices.json`, update the vectors in the same commit, otherwise CI fails.
+The methodology is pinned by golden test vectors in [`tests/methodology-vectors.json`](tests/methodology-vectors.json): hand-computed expected CO2/cost/water values for known token breakdowns, replayed by `bash tests/run-vectors.sh` in CI on every push. Downstream consumers (such as TokenClimate) keep a copy of this file and verify weekly that their implementation produces the same numbers. If you edit `data/factors.json` or `data/prices.json`, update the vectors in the same commit, otherwise CI fails.
 
 ## Dependencies
 
@@ -188,11 +201,11 @@ The methodology is pinned by golden test vectors in [`tests/methodology-vectors.
 - `sqlite3` - local database
 - `git` - branch detection in status line (optional)
 - `curl` - 5h quota usage via Anthropic's `/api/oauth/usage` endpoint (optional, 60s cache)
-- `playwright-core` + Chromium - PNG export for `/carbon-card` (optional)
+- `playwright-core` + Chromium - PNG export for `/footprint-card` (optional)
 
 `jq` and `sqlite3` are pre-installed on macOS. On Linux: `apt install jq sqlite3`.
 
-To use `/carbon-card`, install Playwright and its Chromium browser:
+To use `/footprint-card`, install Playwright and its Chromium browser:
 
 ```bash
 npm install -g playwright-core
@@ -283,6 +296,6 @@ Every Claude Code session uses real compute, real energy, real emissions. The nu
 
 ## Open source
 
-claude-carbon is free and open source under the [MIT license](LICENSE). Contributions welcome.
+claude-footprint is free and open source under the [MIT license](LICENSE). Contributions welcome.
 
-Built by [Gaetan Wittebolle](https://github.com/gwittebolle).
+Built by [Vincent Rizzo](https://github.com/vinri2z).

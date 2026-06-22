@@ -22,6 +22,7 @@ sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER DE
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER DEFAULT 0;" 2>/dev/null || true
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN methodology_version INTEGER DEFAULT 1;" 2>/dev/null || true
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN excluded INTEGER DEFAULT 0;" 2>/dev/null || true
+sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN water_liters REAL;" 2>/dev/null || true
 
 # Load emission factors once
 FACTOR_FABLE_IN="$(jq -r '.models.fable.input // 1000' "$FACTORS_FILE" 2>/dev/null)" || FACTOR_FABLE_IN="1000"
@@ -34,6 +35,16 @@ FACTOR_HAIKU_IN="$(jq -r '.models.haiku.input' "$FACTORS_FILE" 2>/dev/null)" || 
 FACTOR_HAIKU_OUT="$(jq -r '.models.haiku.output' "$FACTORS_FILE" 2>/dev/null)" || exit 0
 # Energy of a cache_read token as a fraction of an uncached input token (see METHODOLOGY.md).
 CACHE_READ_FACTOR="$(jq -r '.cache_read_factor // 0.08' "$FACTORS_FILE" 2>/dev/null)" || CACHE_READ_FACTOR="0.08"
+
+# Load water factors once (liters per million tokens; same formula shape as CO2). See METHODOLOGY.md.
+WATER_FABLE_IN="$(jq -r '.water_factors.fable.input // 11.568' "$FACTORS_FILE" 2>/dev/null)" || WATER_FABLE_IN="11.568"
+WATER_FABLE_OUT="$(jq -r '.water_factors.fable.output // 69.408' "$FACTORS_FILE" 2>/dev/null)" || WATER_FABLE_OUT="69.408"
+WATER_OPUS_IN="$(jq -r '.water_factors.opus.input // 5.784' "$FACTORS_FILE" 2>/dev/null)" || WATER_OPUS_IN="5.784"
+WATER_OPUS_OUT="$(jq -r '.water_factors.opus.output // 34.704' "$FACTORS_FILE" 2>/dev/null)" || WATER_OPUS_OUT="34.704"
+WATER_SONNET_IN="$(jq -r '.water_factors.sonnet.input // 2.198' "$FACTORS_FILE" 2>/dev/null)" || WATER_SONNET_IN="2.198"
+WATER_SONNET_OUT="$(jq -r '.water_factors.sonnet.output // 13.187' "$FACTORS_FILE" 2>/dev/null)" || WATER_SONNET_OUT="13.187"
+WATER_HAIKU_IN="$(jq -r '.water_factors.haiku.input // 1.099' "$FACTORS_FILE" 2>/dev/null)" || WATER_HAIKU_IN="1.099"
+WATER_HAIKU_OUT="$(jq -r '.water_factors.haiku.output // 6.594' "$FACTORS_FILE" 2>/dev/null)" || WATER_HAIKU_OUT="6.594"
 
 # Load pricing once (USD per million tokens, current Anthropic list price).
 # The Stop hook doesn't provide the actual billed cost, so we estimate the API list value.
@@ -124,13 +135,14 @@ aggregate_jsonl() {
   ' 2>/dev/null
 }
 
-# Helper: compute CO2 and theoretical API cost for aggregated data using its own model.
-# CO2  = (input + cache_write) * factor_in + cache_read * (factor_in * CACHE_READ_FACTOR) + output * factor_out
-# Cost = input * pin + cache_write * (CACHE_WRITE_MULT*pin) + cache_read * (CACHE_READ_MULT*pin) + output * pout
-# Returns: total_input(=input+cache_write) cache_creation cache_read output co2 cost
+# Helper: compute CO2, theoretical API cost, and water for aggregated data using its own model.
+# CO2   = (input + cache_write) * factor_in + cache_read * (factor_in * CACHE_READ_FACTOR) + output * factor_out
+# Cost  = input * pin + cache_write * (CACHE_WRITE_MULT*pin) + cache_read * (CACHE_READ_MULT*pin) + output * pout
+# Water = (input + cache_write) * win + cache_read * (win * CACHE_READ_FACTOR) + output * wout (same shape as CO2)
+# Returns: total_input(=input+cache_write) cache_creation cache_read output co2 cost water
 compute_co2() {
   local agg="$1"
-  local it cw cr out model family fin fout pin pout co2 cost total_input
+  local it cw cr out model family fin fout pin pout win wout co2 cost water total_input
 
   it="$(echo "$agg" | jq -r '.input_tokens // 0')"
   cw="$(echo "$agg" | jq -r '.cache_creation // 0')"
@@ -141,8 +153,8 @@ compute_co2() {
   total_input="$(echo "$it $cw" | LC_ALL=C awk '{printf "%d", $1 + $2}')"
 
   if is_excluded_model "$model"; then
-    # Non-Anthropic / user-excluded model: keep raw tokens, no cost/CO2 estimate
-    echo "$total_input $cw $cr $out 0 0"
+    # Non-Anthropic / user-excluded model: keep raw tokens, no cost/CO2/water estimate
+    echo "$total_input $cw $cr $out 0 0 0"
     return 0
   fi
 
@@ -152,18 +164,20 @@ compute_co2() {
   echo "$model" | grep -qi "haiku" && family="haiku"
 
   case "$family" in
-    fable) fin="$FACTOR_FABLE_IN"; fout="$FACTOR_FABLE_OUT"; pin="$PRICE_FABLE_IN"; pout="$PRICE_FABLE_OUT" ;;
-    opus)  fin="$FACTOR_OPUS_IN"; fout="$FACTOR_OPUS_OUT"; pin="$PRICE_OPUS_IN"; pout="$PRICE_OPUS_OUT" ;;
-    haiku) fin="$FACTOR_HAIKU_IN"; fout="$FACTOR_HAIKU_OUT"; pin="$PRICE_HAIKU_IN"; pout="$PRICE_HAIKU_OUT" ;;
-    *)     fin="$FACTOR_SONNET_IN"; fout="$FACTOR_SONNET_OUT"; pin="$PRICE_SONNET_IN"; pout="$PRICE_SONNET_OUT" ;;
+    fable) fin="$FACTOR_FABLE_IN"; fout="$FACTOR_FABLE_OUT"; pin="$PRICE_FABLE_IN"; pout="$PRICE_FABLE_OUT"; win="$WATER_FABLE_IN"; wout="$WATER_FABLE_OUT" ;;
+    opus)  fin="$FACTOR_OPUS_IN"; fout="$FACTOR_OPUS_OUT"; pin="$PRICE_OPUS_IN"; pout="$PRICE_OPUS_OUT"; win="$WATER_OPUS_IN"; wout="$WATER_OPUS_OUT" ;;
+    haiku) fin="$FACTOR_HAIKU_IN"; fout="$FACTOR_HAIKU_OUT"; pin="$PRICE_HAIKU_IN"; pout="$PRICE_HAIKU_OUT"; win="$WATER_HAIKU_IN"; wout="$WATER_HAIKU_OUT" ;;
+    *)     fin="$FACTOR_SONNET_IN"; fout="$FACTOR_SONNET_OUT"; pin="$PRICE_SONNET_IN"; pout="$PRICE_SONNET_OUT"; win="$WATER_SONNET_IN"; wout="$WATER_SONNET_OUT" ;;
   esac
 
   co2="$(echo "$it $cw $cr $out $fin $fout $CACHE_READ_FACTOR" | LC_ALL=C awk \
     '{printf "%.4f", (($1 + $2) * $5 + $3 * ($5 * $7) + $4 * $6) / 1000000}')"
   cost="$(echo "$it $cw $cr $out $pin $pout $CACHE_WRITE_MULT $CACHE_READ_MULT" | LC_ALL=C awk \
     '{printf "%.6f", ($1 * $5 + $2 * ($5 * $7) + $3 * ($5 * $8) + $4 * $6) / 1000000}')"
+  water="$(echo "$it $cw $cr $out $win $wout $CACHE_READ_FACTOR" | LC_ALL=C awk \
+    '{printf "%.6f", (($1 + $2) * $5 + $3 * ($5 * $7) + $4 * $6) / 1000000}')"
   total_input="$(echo "$it $cw" | LC_ALL=C awk '{printf "%d", $1 + $2}')"
-  echo "$total_input $cw $cr $out $co2 $cost"
+  echo "$total_input $cw $cr $out $co2 $cost $water"
 }
 
 # Find the JSONL file: use transcript_path from hook, fallback to search by session_id
@@ -186,7 +200,7 @@ fi
 
 # Parse main JSONL
 MAIN_AGG="$(aggregate_jsonl "$JSONL_FILE")" || exit 0
-read -r INPUT_TOKENS CACHE_CREATION CACHE_READ OUTPUT_TOKENS CO2_G COST_USD <<< "$(compute_co2 "$MAIN_AGG")"
+read -r INPUT_TOKENS CACHE_CREATION CACHE_READ OUTPUT_TOKENS CO2_G COST_USD WATER_L <<< "$(compute_co2 "$MAIN_AGG")"
 
 # Extract model from JSONL (not available in Stop hook JSON)
 MODEL_RAW="$(echo "$MAIN_AGG" | jq -r '.models | if length == 0 then "claude-sonnet" else group_by(.) | sort_by(-length) | first | first end' 2>/dev/null)" || MODEL_RAW="claude-sonnet"
@@ -198,13 +212,14 @@ if [ -d "$SUBAGENT_DIR" ]; then
     [ -f "$SUB_FILE" ] || continue
     SUB_AGG="$(aggregate_jsonl "$SUB_FILE")" || continue
 
-    read -r SUB_IN SUB_CW SUB_CR SUB_OUT SUB_CO2 SUB_COST <<< "$(compute_co2 "$SUB_AGG")"
+    read -r SUB_IN SUB_CW SUB_CR SUB_OUT SUB_CO2 SUB_COST SUB_WATER <<< "$(compute_co2 "$SUB_AGG")"
     INPUT_TOKENS="$(echo "$INPUT_TOKENS $SUB_IN" | LC_ALL=C awk '{printf "%d", $1 + $2}')"
     CACHE_CREATION="$(echo "$CACHE_CREATION $SUB_CW" | LC_ALL=C awk '{printf "%d", $1 + $2}')"
     CACHE_READ="$(echo "$CACHE_READ $SUB_CR" | LC_ALL=C awk '{printf "%d", $1 + $2}')"
     OUTPUT_TOKENS="$(echo "$OUTPUT_TOKENS $SUB_OUT" | LC_ALL=C awk '{printf "%d", $1 + $2}')"
     CO2_G="$(echo "$CO2_G $SUB_CO2" | LC_ALL=C awk '{printf "%.4f", $1 + $2}')"
     COST_USD="$(echo "$COST_USD $SUB_COST" | LC_ALL=C awk '{printf "%.6f", $1 + $2}')"
+    WATER_L="$(echo "$WATER_L $SUB_WATER" | LC_ALL=C awk '{printf "%.6f", $1 + $2}')"
   done
 fi
 
@@ -225,6 +240,6 @@ MODEL_RAW="${MODEL_RAW//\'/\'\'}"
 NOW="${NOW//\'/\'\'}"
 
 # INSERT OR REPLACE into sessions (source='live', cost = theoretical API list price)
-sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO sessions (session_id, project, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, co2_grams, started_at, ended_at, source, methodology_version, excluded) VALUES ('${SESSION_ID}', '${PROJECT}', '${MODEL_RAW}', ${INPUT_TOKENS}, ${OUTPUT_TOKENS}, ${CACHE_READ}, ${CACHE_CREATION}, ${COST_USD}, ${CO2_G}, COALESCE((SELECT started_at FROM sessions WHERE session_id='${SESSION_ID}'), '${NOW}'), '${NOW}', 'live', ${METHODOLOGY_VERSION}, ${EXCLUDED});" 2>/dev/null || true
+sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO sessions (session_id, project, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, co2_grams, water_liters, started_at, ended_at, source, methodology_version, excluded) VALUES ('${SESSION_ID}', '${PROJECT}', '${MODEL_RAW}', ${INPUT_TOKENS}, ${OUTPUT_TOKENS}, ${CACHE_READ}, ${CACHE_CREATION}, ${COST_USD}, ${CO2_G}, ${WATER_L}, COALESCE((SELECT started_at FROM sessions WHERE session_id='${SESSION_ID}'), '${NOW}'), '${NOW}', 'live', ${METHODOLOGY_VERSION}, ${EXCLUDED});" 2>/dev/null || true
 
 exit 0

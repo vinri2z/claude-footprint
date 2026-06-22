@@ -29,7 +29,8 @@ Factors are in gCO2e per million tokens. `cache_write_tokens` (`cache_creation_i
 | --------- | ---------------- | ------------------------------------------------ |
 | PUE       | 1.14             | AWS datacenter power usage effectiveness         |
 | CIF       | 0.287 kgCO2e/kWh | Carbon intensity factor (US grid average)        |
-| WUE       | 0.18 L/kWh       | Water usage effectiveness (not used in CO2 calc) |
+| WUE       | 0.18 L/kWh       | Onsite water usage effectiveness (used in water calc) |
+| EWIF      | 3.14 L/kWh       | Offsite electricity-generation water intensity (used in water calc) |
 
 ## Per-model factors (gCO2e per million tokens)
 
@@ -53,6 +54,45 @@ The Jegham paper measured Sonnet-class models directly. The other families are e
 - Haiku = 0.5x Sonnet (smaller model, lighter compute)
 
 These are order-of-magnitude estimates. Actual values depend on Anthropic's specific hardware configuration and batching strategies, which are not publicly available.
+
+## Water footprint
+
+Water is estimated from the same inference energy as CO2, using a water-intensity factor in place of the carbon-intensity factor. Both are `energy × intensity`, so per token the two are proportional:
+
+```
+session_water_liters = (
+    (input_tokens + cache_write_tokens) * water_input_factor
+  + cache_read_tokens * (water_input_factor * cache_read_factor)
+  + output_tokens * water_output_factor
+) / 1_000_000
+```
+
+Water factors are in liters per million tokens. The same `cache_read_factor` (0.08) applies, because water tracks energy.
+
+### Water intensity (WIF)
+
+Total water intensity is the sum of two components:
+
+| Component | Value      | What it covers                                                        |
+| --------- | ---------- | --------------------------------------------------------------------- |
+| Onsite (WUE)  | 0.18 L/kWh | Water evaporated by datacenter cooling (AWS 2024 reported ~0.15, rounded up) |
+| Offsite (EWIF)| 3.14 L/kWh | Water consumed generating the electricity (US-grid average)           |
+| **Total (WIF)** | **3.32 L/kWh** | Onsite + offsite                                                  |
+
+Per-model water factors are derived from the CO2 factors: `water_factor = co2_factor × WIF / CIF = co2_factor × 3.32 / 287 ≈ co2_factor × 0.0115679 L/gCO2e`.
+
+| Model family | Input (L/Mtok) | Output (L/Mtok) |
+| ------------ | -------------- | --------------- |
+| Fable        | 11.568         | 69.408          |
+| Opus         | 5.784          | 34.704          |
+| Sonnet       | 2.198          | 13.187          |
+| Haiku        | 1.099          | 6.594           |
+
+### Why this is a conservative (over-estimated) figure
+
+The offsite EWIF uses the **US-grid average** (3.14 L/kWh, Reig et al./WRI), not the more water-efficient mix of the specific AWS regions Anthropic runs in. Applying both the onsite WUE and the offsite EWIF to the full facility-level energy (which already includes PUE) over-applies the onsite term slightly. Both choices push the estimate up on purpose: the headline water number is meant to be an upper bound, not a best guess.
+
+Sources: AWS 2024 sustainability report (onsite WUE); Li et al. 2023, "Making AI Less Thirsty" ([arXiv:2304.03271](https://arxiv.org/abs/2304.03271)); Reig et al./WRI (US EWIF 3.14); EESI.
 
 ## Excluded models (non-Anthropic)
 
@@ -89,7 +129,7 @@ The `cost_usd` column is the theoretical API list value of the usage (what it wo
 ## Limitations
 
 - Order of magnitude only. Do not use these numbers for regulatory reporting or lifecycle assessments.
-- Inference only. Training costs, hardware manufacturing, and cooling water are not included.
+- Inference only. Training costs and hardware manufacturing are not included. Cooling water (onsite) and electricity-generation water (offsite) ARE included in the water estimate, at order-of-magnitude accuracy.
 - Cache read energy is a derived estimate, not a measurement (see Cache read energy below). Cache reads are 90%+ of tokens in Claude Code, so the chosen factor (default 0.08) is the single biggest lever on the headline number.
 - Status line is approximate. Claude Code does not expose `cache_read_input_tokens` separately in the statusline hook JSON, and parsing JSONL incrementally at each turn would be too slow. The live display uses `context_window.total_input_tokens` (current context size, includes cache reads, no subagents). This is not used in reports.
 - Grid-average, not real-time. The CIF is a static US grid average. Actual emissions depend on Anthropic's datacenter location, energy mix, and time of day.
@@ -103,3 +143,10 @@ The `cost_usd` column is the theoretical API list value of the usage (what it wo
 | Google search         | 0.2 gCO2e       | Google Environmental Report 2023      |
 | Email with attachment | 19 gCO2e        | ADEME 2024                            |
 | TGV                   | 2.4 gCO2e/km    | SNCF 2023 Environmental Report        |
+
+### Water equivalences
+
+| Activity        | Water factor | Source                  |
+| --------------- | ------------ | ----------------------- |
+| Bottle of water | 0.5 L        | standard 50 cL bottle   |
+| Shower (8 min)  | 65 L         | EPA (~2.1 gal/min)      |

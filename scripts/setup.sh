@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# setup.sh — Initialize claude-carbon: check deps, create DB, backfill history, show summary.
+# setup.sh — Initialize claude-footprint: check deps, create DB, backfill history, show summary.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+# Data dir/DB kept as claude-carbon for backward compatibility with existing installs.
 DB_DIR="${HOME}/.claude/claude-carbon"
 DB_PATH="${DB_DIR}/carbon.db"
 
-echo "🌿 claude-carbon setup"
+echo "🌿 claude-footprint setup"
 echo "─────────────────────────────"
 
 # 1. Check dependencies
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   cache_creation_tokens INTEGER DEFAULT 0,
   cost_usd REAL,
   co2_grams REAL,
+  water_liters REAL,
   started_at TEXT,
   ended_at TEXT,
   source TEXT DEFAULT 'live',
@@ -59,6 +61,7 @@ sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER DE
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER DEFAULT 0;" 2>/dev/null || true
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN methodology_version INTEGER DEFAULT 1;" 2>/dev/null || true
 sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN excluded INTEGER DEFAULT 0;" 2>/dev/null || true
+sqlite3 "$DB_PATH" "ALTER TABLE sessions ADD COLUMN water_liters REAL;" 2>/dev/null || true
 
 echo "  Schema created."
 
@@ -74,6 +77,7 @@ echo "Summary:"
 
 TOTAL_SESSIONS="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sessions;")"
 TOTAL_CO2_G="$(sqlite3 "$DB_PATH" "SELECT COALESCE(SUM(co2_grams), 0) FROM sessions;" | LC_ALL=C awk '{printf "%.0f", $1}')"
+TOTAL_WATER_L="$(sqlite3 "$DB_PATH" "SELECT COALESCE(SUM(water_liters), 0) FROM sessions;" | LC_ALL=C awk '{printf "%.1f", $1}')"
 CURRENT_YEAR="$(date +%Y)"
 YEAR_CO2_G="$(sqlite3 "$DB_PATH" "SELECT COALESCE(SUM(co2_grams), 0) FROM sessions WHERE started_at LIKE '${CURRENT_YEAR}%';" | LC_ALL=C awk '{printf "%.0f", $1}')"
 
@@ -93,6 +97,7 @@ fi
 
 echo "  Total sessions    : ${TOTAL_SESSIONS}"
 echo "  Total CO2         : ${TOTAL_CO2_DISPLAY} CO2"
+echo "  Total water       : ${TOTAL_WATER_L} L"
 echo "  CO2 (${CURRENT_YEAR})       : ${YEAR_CO2_DISPLAY} CO2"
 
 # 6. Next steps (skip if called from install.sh which handles config automatically)

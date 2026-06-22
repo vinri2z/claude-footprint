@@ -11,6 +11,14 @@
     "sonnet": { "input": 190, "output": 1140 },
     "haiku": { "input": 95, "output": 570 }
   },
+  "_water": "Water = inference energy x water intensity. WIF = onsite WUE 0.18 + offsite EWIF 3.14 = 3.32 L/kWh; CIF 287 gCO2e/kWh. Per-model water factor = co2_factor x 3.32/287 (~0.0115679 L/gCO2e). Conservative/over-estimate: uses US-grid average electricity-water (EWIF), not the more efficient AWS-region mix. Sources: AWS 2024 sustainability WUE; Li et al. 2023 (arXiv:2304.03271); Reig et al./WRI EWIF 3.14; EESI. See METHODOLOGY.md.",
+  "_water_units": "liters per million tokens",
+  "water_factors": {
+    "fable": { "input": 11.568, "output": 69.408 },
+    "opus": { "input": 5.784, "output": 34.704 },
+    "sonnet": { "input": 2.198, "output": 13.187 },
+    "haiku": { "input": 1.099, "output": 6.594 }
+  },
   "_exclude_models": "Sessions whose model string does not contain 'claude' (e.g. local models served behind ANTHROPIC_BASE_URL) are always stored with cost_usd=0, co2_grams=0 and excluded=1, and left out of report aggregates. Add case-insensitive grep -E patterns here to exclude additional models by name.",
   "exclude_models": []
 }
