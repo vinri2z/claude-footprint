@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # generate-report.sh — Generate Claude Footprint Report PNGs (CO2 + water) from DB stats.
 # Usage: generate-report.sh [--since YYYY-MM-DD] [--all]
-# Default: since January 1st of current year.
+# Default: since January 1st of current year. Output is English only.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,43 +14,32 @@ YEAR="$(date +%Y)"
 
 # ── Parse args ──────────────────────────────────────────────
 SINCE="${YEAR}-01-01"
-SINCE_LABEL_FR="janvier ${YEAR}"
-SINCE_LABEL_EN="January ${YEAR}"
-LANG_FILTER="" # empty = both
+SINCE_LABEL="January ${YEAR}"
 LABEL_AUTO=1   # default mode: derive the "since" label from the earliest real session
 
 # Full month names for the auto-derived label (index 1-12)
-MONTHS_FR=("" "janvier" "février" "mars" "avril" "mai" "juin" "juillet" "août" "septembre" "octobre" "novembre" "décembre")
 MONTHS_EN=("" "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December")
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --since)
       SINCE="$2"
-      SINCE_LABEL_FR="$2"
-      SINCE_LABEL_EN="$2"
+      SINCE_LABEL="$2"
       LABEL_AUTO=0
       shift 2
       ;;
     --all)
       SINCE=""
-      SINCE_LABEL_FR="le début"
-      SINCE_LABEL_EN="the beginning"
+      SINCE_LABEL="the beginning"
       LABEL_AUTO=0
       shift
       ;;
-    --lang)
-      LANG_FILTER="$2"
-      shift 2
-      ;;
     *)
-      echo "Usage: generate-report.sh [--since YYYY-MM-DD] [--all] [--lang fr|en]" >&2
+      echo "Usage: generate-report.sh [--since YYYY-MM-DD] [--all]" >&2
       exit 1
       ;;
   esac
 done
-
-SINCE_LABEL="$SINCE_LABEL_FR"
 
 # Build SQL WHERE clause (always filters out excluded sessions, e.g. non-Anthropic models)
 if [ -n "$SINCE" ]; then
@@ -128,8 +117,7 @@ if [ "$LABEL_AUTO" = "1" ] && [ -n "$FIRST_DATE" ]; then
   _lm="$(echo "$FIRST_DATE" | cut -c6-7 | sed 's/^0//')"
   _ly="$(echo "$FIRST_DATE" | cut -c1-4)"
   if [ -n "$_lm" ] && [ "$_lm" -ge 1 ] 2>/dev/null && [ "$_lm" -le 12 ] 2>/dev/null; then
-    SINCE_LABEL_FR="${MONTHS_FR[$_lm]} ${_ly}"
-    SINCE_LABEL_EN="${MONTHS_EN[$_lm]} ${_ly}"
+    SINCE_LABEL="${MONTHS_EN[$_lm]} ${_ly}"
   fi
 fi
 
@@ -176,25 +164,8 @@ fi
 # Format model
 TOP_MODEL_DISPLAY="$(echo "$TOP_MODEL" | sed 's/claude-//' | sed 's/-4-6//' | sed 's/-4-5.*//')"
 
-# ── Monthly bars HTML ───────────────────────────────────────
+# ── Monthly bars data (injected into HTML by python below) ──
 MONTHLY_DATA="$(sqlite3 -separator '|' "$DB_PATH" "SELECT substr(started_at, 1, 7), SUM(co2_grams) FROM sessions ${WHERE} GROUP BY substr(started_at, 1, 7) ORDER BY substr(started_at, 1, 7);")"
-MAX_MONTH_CO2="$(echo "$MONTHLY_DATA" | LC_ALL=C awk -F'|' 'BEGIN{m=0} {if($2>m)m=$2} END{print m}')"
-
-MONTHLY_BARS=""
-MONTH_NAMES="Jan Fév Mar Avr Mai Jun Jul Aoû Sep Oct Nov Déc"
-while IFS='|' read -r month_key month_co2; do
-  [ -z "$month_key" ] && continue
-  month_num="${month_key:5:2}"
-  month_num_clean="$(echo "$month_num" | sed 's/^0//')"
-  month_label="$(echo "$MONTH_NAMES" | LC_ALL=C awk -v n="$month_num_clean" '{print $n}')"
-  if [ "$MAX_MONTH_CO2" -gt 0 ] 2>/dev/null; then
-    pct="$(echo "$month_co2 $MAX_MONTH_CO2" | LC_ALL=C awk '{printf "%.0f", ($1/$2)*100}')"
-  else
-    pct="10"
-  fi
-  co2_display="$(format_co2 "$month_co2")"
-  MONTHLY_BARS="${MONTHLY_BARS}<div class=\"bar-row\"><span class=\"bar-label\">${month_label}</span><div class=\"bar-track\"><div class=\"bar-fill\" style=\"width: ${pct}%\"></div></div><span class=\"bar-value\">${co2_display}</span></div>"
-done <<< "$MONTHLY_DATA"
 
 # ── Parse top 5 projects ───────────────────────────────────
 declare -a P_NAME P_CO2 P_SESSIONS
@@ -252,34 +223,22 @@ inject_common() {
     "$src" > "$dst"
 }
 
-# Generate FR templates
-SINCE_LABEL="$SINCE_LABEL_FR"
-_t=$(mktemp /tmp/claude-footprint-summary-fr-XXXXXX); TMP_SUMMARY_FR="${_t}.html"; mv "$_t" "$TMP_SUMMARY_FR"
-_t=$(mktemp /tmp/claude-footprint-detailed-fr-XXXXXX); TMP_DETAILED_FR="${_t}.html"; mv "$_t" "$TMP_DETAILED_FR"
-inject_common "$TEMPLATE_DIR/report-summary.html" "$TMP_SUMMARY_FR"
-inject_common "$TEMPLATE_DIR/report-detailed.html" "$TMP_DETAILED_FR"
-
-# Generate EN templates
-SINCE_LABEL="$SINCE_LABEL_EN"
-_t=$(mktemp /tmp/claude-footprint-summary-en-XXXXXX); TMP_SUMMARY_EN="${_t}.html"; mv "$_t" "$TMP_SUMMARY_EN"
-_t=$(mktemp /tmp/claude-footprint-detailed-en-XXXXXX); TMP_DETAILED_EN="${_t}.html"; mv "$_t" "$TMP_DETAILED_EN"
-inject_common "$TEMPLATE_DIR/report-summary-en.html" "$TMP_SUMMARY_EN"
-inject_common "$TEMPLATE_DIR/report-detailed-en.html" "$TMP_DETAILED_EN"
-
-# Inject monthly bars into all summary files
-TMP_SUMMARY="$TMP_SUMMARY_FR"
+# Generate templates (English only)
+_t=$(mktemp /tmp/claude-footprint-summary-XXXXXX); TMP_SUMMARY="${_t}.html"; mv "$_t" "$TMP_SUMMARY"
+_t=$(mktemp /tmp/claude-footprint-detailed-XXXXXX); TMP_DETAILED="${_t}.html"; mv "$_t" "$TMP_DETAILED"
+inject_common "$TEMPLATE_DIR/report-summary.html" "$TMP_SUMMARY"
+inject_common "$TEMPLATE_DIR/report-detailed.html" "$TMP_DETAILED"
 
 # Inject monthly bars via python (bash/sed can't handle % in style attrs)
 _t=$(mktemp /tmp/claude-footprint-monthly-XXXXXX); TMP_MONTHLY="${_t}.txt"; mv "$_t" "$TMP_MONTHLY"
 echo "$MONTHLY_DATA" > "$TMP_MONTHLY"
 
-export TMP_SUMMARY TMP_SUMMARY_EN TMP_MONTHLY
+export TMP_SUMMARY TMP_MONTHLY
 python3 << 'PYEOF'
 import sys, os
 
-months_fr = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
+months_en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 summary_file = os.environ["TMP_SUMMARY"]
-summary_file_en = os.environ["TMP_SUMMARY_EN"]
 monthly_file = os.environ["TMP_MONTHLY"]
 
 # Parse monthly data
@@ -292,7 +251,7 @@ with open(monthly_file) as f:
         month_key, co2_str = line.split("|", 1)
         co2 = float(co2_str)
         month_num = int(month_key.split("-")[1])
-        label = months_fr[month_num - 1]
+        label = months_en[month_num - 1]
         if co2 >= 1000:
             display = f"{co2/1000:.1f} kg"
         else:
@@ -312,30 +271,14 @@ for label, co2, display in rows:
         f'</div>\n'
     )
 
-# Inject into all summary files
-for sf in [summary_file, summary_file_en]:
-    if sf and os.path.exists(sf):
-        with open(sf) as f:
-            content = f.read()
-        content = content.replace("{{MONTHLY_BARS}}", bars_html)
-        with open(sf, "w") as f:
-            f.write(content)
+# Inject into the summary file
+if summary_file and os.path.exists(summary_file):
+    with open(summary_file) as f:
+        content = f.read()
+    content = content.replace("{{MONTHLY_BARS}}", bars_html)
+    with open(summary_file, "w") as f:
+        f.write(content)
 PYEOF
-
-export TMP_SUMMARY_EN
-python3 -c "
-import os
-sf = os.environ.get('TMP_SUMMARY_EN', '')
-if sf and os.path.exists(sf):
-    months_en = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    months_fr = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
-    with open(sf) as f:
-        c = f.read()
-    for fr, en in zip(months_fr, months_en):
-        c = c.replace(f'>{fr}<', f'>{en}<')
-    with open(sf, 'w') as f:
-        f.write(c)
-"
 
 rm -f "$TMP_MONTHLY"
 
@@ -364,7 +307,7 @@ fi
 if [ -z "$PW_PATH" ]; then
   echo "Error: playwright-core not found." >&2
   echo "Install: npm install -g playwright-core && npx playwright install chromium" >&2
-  rm -f "$TMP_SUMMARY_FR" "$TMP_SUMMARY_EN" "$TMP_DETAILED_FR" "$TMP_DETAILED_EN"
+  rm -f "$TMP_SUMMARY" "$TMP_DETAILED"
   exit 1
 fi
 
@@ -376,7 +319,7 @@ PORT=8799
 cp -f "$TEMPLATE_DIR/logo.png" /tmp/logo.png 2>/dev/null || true
 python3 -m http.server "$PORT" --directory /tmp &>/dev/null &
 SERVER_PID=$!
-trap "kill $SERVER_PID 2>/dev/null; rm -f $TMP_SUMMARY_FR $TMP_DETAILED_FR $TMP_SUMMARY_EN $TMP_DETAILED_EN" EXIT
+trap "kill $SERVER_PID 2>/dev/null; rm -f $TMP_SUMMARY $TMP_DETAILED" EXIT
 sleep 0.5
 
 export_png() {
@@ -410,15 +353,8 @@ const { chromium } = require('${PW_PATH}');
   fi
 }
 
-if [ -z "$LANG_FILTER" ] || [ "$LANG_FILTER" = "fr" ]; then
-  export_png "$TMP_SUMMARY_FR" "$EXPORT_DIR/claude-footprint-summary-fr-${TODAY}.png" "Summary FR"
-  export_png "$TMP_DETAILED_FR" "$EXPORT_DIR/claude-footprint-detailed-fr-${TODAY}.png" "Detailed FR"
-fi
-
-if [ -z "$LANG_FILTER" ] || [ "$LANG_FILTER" = "en" ]; then
-  export_png "$TMP_SUMMARY_EN" "$EXPORT_DIR/claude-footprint-summary-en-${TODAY}.png" "Summary EN"
-  export_png "$TMP_DETAILED_EN" "$EXPORT_DIR/claude-footprint-detailed-en-${TODAY}.png" "Detailed EN"
-fi
+export_png "$TMP_SUMMARY" "$EXPORT_DIR/claude-footprint-summary-${TODAY}.png" "Summary"
+export_png "$TMP_DETAILED" "$EXPORT_DIR/claude-footprint-detailed-${TODAY}.png" "Detailed"
 
 echo ""
 echo "Done. ${EXPORT_DIR}/"
